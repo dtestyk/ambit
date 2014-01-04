@@ -2,6 +2,10 @@
 <html lang="en"> 
 <head>
 <style>
+  #my_id, #your_id {
+    width: 120px;
+  }
+  
   canvas {
     background: #ccc;
   }
@@ -11,8 +15,10 @@
 <script src="http://ajax.cdnjs.com/ajax/libs/underscore.js/1.3.1/underscore-min.js"></script>
 <script src="http://cdn.peerjs.com/0.3/peer.js"></script>
 <script>
+  var colors = ['green', 'red', 'blue', 'yellow', 'aqua', 'magenta', 'black', 'white']
   var points = {}
   var color_points = {}
+  var eps = 1024
 
   function e2p(e){
     return {
@@ -20,7 +26,7 @@
       y: e.offsetY || e.layerY
     }
   }
-
+  
   function draw_cirlce(ctx, x, y, r, c){
     var c = c || '#000'
     ctx.fillStyle = c
@@ -29,35 +35,27 @@
     ctx.fill();
   }
   
-  //function random_color(){
-  //  var colors = ['#0F0', '#F00', '#000', '#FFF', '#0FF', '#FF0']
-  //  var i = Math.floor(Math.random()*colors.length)
-  //  return colors[i]
-    //return '#'+Math.floor(Math.random()*0xfff).toString(16)     
-  //}
-  
-  function random_point(cnv){
-    var colors = ['green', 'red']
+  function random_color(){
     var i = Math.floor(Math.random()*colors.length)
-    var p = {
-      x: Math.floor(Math.random()*cnv.width),
-      y: Math.floor(Math.random()*cnv.height),
-      c: colors[i]
-    }
-    return p
+    var color = colors[i]
+    colors.splice(i, 1)
+    return color
   }
   
   function compute_color(point, points){
-    var color = point.c
     var nighs = _(points)
       .chain()
-      .map(function(c, id){
+      .map(function(pp, id){
         var p1 = id.split(',')
         var x = p1[0]
         var y = p1[1]
         var d = Math.pow(point.x-x,2) + Math.pow(point.y-y,2)
-        var pd = [x, y, c, d]
+        var pd = [x, y, pp.c, d]
         return pd
+      })
+      .filter(function(p){
+        var d = p[3]
+        return d < eps
       })
       .sortBy(function(p){
         var d = p[3]
@@ -66,7 +64,8 @@
       .first(2)
       .value()
     //console.log("nighs",nighs)
-    if(nighs.length == 2){
+    var color
+    if(nighs.length > 0){
       color = _(nighs)
         .chain()
         .groupBy(function(p){
@@ -74,88 +73,133 @@
           return c
         })
        .map(function(arr, key){
-          var n = arr.length
-          return [key, n]
+          var s = _.reduce(arr, function(a, p){return a + p[3]}, 0)
+          return [key, arr.length]
         })
-        .sortBy(function(p){
-          var n = p[1]
-          return n
+        .sortBy(function(cd){
+          var s = cd[1]
+          return -s
         })
         .first()
         .first()
         .value()
         //console.log(color,'color')
+    }else{
+      color = random_color()
+      //console.log(color,'random_color')
     }
     return color
   }
   
 
   $(document).ready(function() {
-    var connection
+    var ctx = cnv.getContext('2d')
+    var connect
+    var connections = {}
     var me = new Peer({key: '5q1bmiaw8q5gsyvi'});
     me.on('open', function(id){
       my_id.value = id
     })
     
-    function process_connection(c){
-      console.log("process_connection")
-      c.on('open', function() {
-        console.log("c.onopen")
-        connection = c
-        var p = random_point(cnv)
-        c.send(p)
-      })
+    function send(p){
+      var c = connect
+      c&&c.open&&c.send(p)
+      for(var id in connections){
+        var c = connections[id]
+        c&&c.open&&c.send(p)
+      }
+    }
+    
+    function process_both(c){
       c.on('data', function(data) {
-        var p = data
-        var id = [p.x, p.y].join()
-        var n_points = Object.keys(points).length
-        if(!points[id]){
-          if(n_points >= 10){
-            p.c = compute_color(p, points)
+        if(data.must_init){
+          points = data.points
+          color_points = data.color_points
+          for(var c in color_points){
+          console.log("c",c)
+            var i = colors.indexOf(c)
+            console.log("i",i)
+            if(i>-1){
+              colors.splice(i, 1)
+            }
+            console.log("colos",colors)
           }
-          points[id] = p.c
+          
+          
+          for(var id in points){
+            var p1 = id.split(',')
+            var x = p1[0]
+            var y = p1[1]
+            var p2 = points[id]
+            var c = p2.c
+            draw_cirlce(ctx, x, y, 3, c)
+          }
+          result.innerHTML = JSON.stringify(color_points)
+        }else{
+          var p = data
+          var id = [p.x, p.y].join()
+          var n_points = Object.keys(points).length
+          if(points[id]) return
+          p.c = compute_color(p, points)
+          if(!p.c || p.c == '') return
+          
+          points[id] = {c: p.c}
           color_points[p.c] = color_points[p.c] || 0
           color_points[p.c]++
+          
           result.innerHTML = JSON.stringify(color_points)
           draw_cirlce(ctx, p.x, p.y, 3, p.c)
-          c.send(p)
-        } else {
-          if(n_points < 10){
-            var p1 = random_point(cnv)
-            map = {'green': 'red', 'red': 'green'}
-            p1.c = map[p.c]
-            c.send(p1)
-          }
+          send(p)
         }
       });
     }
     
+    function process_connection(c){
+      console.log("process_connection")
+      c.on('open', function() {
+        console.log("c.onopen")
+        var id = c.peer
+        connections[id] = c
+        c.send({
+          must_init: true,
+          points: points,
+          color_points: color_points
+        })
+      })
+    }
+    
+    function process_connect(c){
+      connect = c
+      points = {}
+      color_points = {}
+      ctx.clearRect(0, 0, cnv.width, cnv.height)
+    }
+    
     me.on('connection', function(c) {
-      if(your_id.value != c.peer) return
       process_connection(c)
+      process_both(c)
     });
 
     btn_conn.onclick = function(){
       var c = me.connect(your_id.value)
-      process_connection(c)
+      process_connect(c)
+      process_both(c)
     }
     
-    var ctx = cnv.getContext('2d')
     cnv.onmousemove = function(e){
       var p = e2p(e)
-      var c = connection
-      c&&c.open&&c.send(p)
+      send(p)
     }
   })
 </script>
 </head> 
  <body> 
   <div>
-    <input type='text' id='my_id' />
+    <input type='text' id='my_id' readonly />
     <input type='text' id='your_id' />
     <button id='btn_conn'>connect</button>
   </div>
-  <canvas id=cnv width=300 height=300></canvas>
+  <canvas id=cnv width=325 height=325></canvas>
   <div id=result></div>
 </body> 
 </html> 
