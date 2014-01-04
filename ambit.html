@@ -1,0 +1,161 @@
+<!DOCTYPE HTML> 
+<html lang="en"> 
+<head>
+<style>
+  canvas {
+    background: #ccc;
+  }
+</style>
+
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.6.2/jquery.min.js"></script>
+<script src="http://ajax.cdnjs.com/ajax/libs/underscore.js/1.3.1/underscore-min.js"></script>
+<script src="http://cdn.peerjs.com/0.3/peer.js"></script>
+<script>
+  var points = {}
+  var color_points = {}
+
+  function e2p(e){
+    return {
+      x: e.offsetX || e.layerX,
+      y: e.offsetY || e.layerY
+    }
+  }
+
+  function draw_cirlce(ctx, x, y, r, c){
+    var c = c || '#000'
+    ctx.fillStyle = c
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 2 * Math.PI, false);
+    ctx.fill();
+  }
+  
+  //function random_color(){
+  //  var colors = ['#0F0', '#F00', '#000', '#FFF', '#0FF', '#FF0']
+  //  var i = Math.floor(Math.random()*colors.length)
+  //  return colors[i]
+    //return '#'+Math.floor(Math.random()*0xfff).toString(16)     
+  //}
+  
+  function random_point(cnv){
+    var colors = ['#0f0', '#f00']
+    var i = Math.floor(Math.random()*colors.length)
+    var p = {
+      x: Math.floor(Math.random()*cnv.width),
+      y: Math.floor(Math.random()*cnv.height),
+      c: colors[i]
+    }
+    return p
+  }
+  
+  function compute_color(point, points){
+    var color = point.c
+    var nighs = _(points)
+      .chain()
+      .map(function(c, id){
+        var p1 = id.split(',')
+        var x = p1[0]
+        var y = p1[1]
+        var d = Math.pow(point.x-x,2) + Math.pow(point.y-y,2)
+        var pd = [x, y, c, d]
+        return pd
+      })
+      .sortBy(function(p){
+        var d = p[3]
+        return d
+      })
+      .first(2)
+      .value()
+    //console.log("nighs",nighs)
+    if(nighs.length == 2){
+      color = _(nighs)
+        .chain()
+        .groupBy(function(p){
+          var c = p[2]
+          return c
+        })
+       .map(function(arr, key){
+          var n = arr.length
+          return [key, n]
+        })
+        .sortBy(function(p){
+          var n = p[1]
+          return n
+        })
+        .first()
+        .first()
+        .value()
+        //console.log(color,'color')
+    }
+    return color
+  }
+  
+
+  $(document).ready(function() {
+    var connection
+    var me = new Peer({key: '5q1bmiaw8q5gsyvi'});
+    me.on('open', function(id){
+      my_id.value = id
+    })
+    
+    function process_connection(c){
+      console.log("process_connection")
+      c.on('open', function() {
+        console.log("c.onopen")
+        connection = c
+        var p = random_point(cnv)
+        c.send(p)
+      })
+      c.on('data', function(data) {
+        var p = data
+        var id = [p.x, p.y].join()
+        var n_points = Object.keys(points).length
+        if(!points[id]){
+          if(n_points >= 10){
+            p.c = compute_color(p, points)
+          }
+          points[id] = p.c
+          color_points[p.c] = color_points[p.c] || 0
+          color_points[p.c]++
+          result.innerHTML = JSON.stringify(color_points)
+          draw_cirlce(ctx, p.x, p.y, 3, p.c)
+          c.send(p)
+        } else {
+          if(n_points < 10){
+            var p1 = random_point(cnv)
+            map = {'#0f0': '#f00', '#f00': '#0f0'}
+            p1.c = map[p.c]
+            c.send(p1)
+          }
+        }
+      });
+    }
+    
+    me.on('connection', function(c) {
+      if(your_id.value != c.peer) return
+      process_connection(c)
+    });
+
+    btn_conn.onclick = function(){
+      var c = me.connect(your_id.value)
+      process_connection(c)
+    }
+    
+    var ctx = cnv.getContext('2d')
+    cnv.onmousemove = function(e){
+      var p = e2p(e)
+      var c = connection
+      c&&c.open&&c.send(p)
+    }
+  })
+</script>
+</head> 
+ <body> 
+  <div>
+    <input type='text' id='my_id' />
+    <input type='text' id='your_id' />
+    <button id='btn_conn'>connect</button>
+  </div>
+  <canvas id=cnv width=300 height=300></canvas>
+  <div id=result></div>
+</body> 
+</html> 
