@@ -37,7 +37,7 @@
   //}
   
   function random_point(cnv){
-    var colors = ['#0f0', '#f00']
+    var colors = ['green', 'red']
     var i = Math.floor(Math.random()*colors.length)
     var p = {
       x: Math.floor(Math.random()*cnv.width),
@@ -122,7 +122,7 @@
         } else {
           if(n_points < 10){
             var p1 = random_point(cnv)
-            map = {'#0f0': '#f00', '#f00': '#0f0'}
+            map = {'green': 'red', 'red': 'green'}
             p1.c = map[p.c]
             c.send(p1)
           }
